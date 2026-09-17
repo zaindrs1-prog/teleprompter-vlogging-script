@@ -43,16 +43,21 @@ jobs:
       # Acceptance checks baked into CI: a green run proves the manifest facts.
       # Findings are emitted as annotations so they are visible on the run page.
       - name: Verify APK (permissions, SDK levels, ABIs)
+        shell: bash
         run: |
-          set -uo pipefail
           APK=app/build/outputs/apk/debug/app-debug.apk
-          AAPT2=$(ls -d "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -n1)
-          "$AAPT2" dump badging "$APK" > badging.txt 2>badging.err || true
-          "$AAPT2" dump permissions "$APK" > perms.txt 2>perms.err || true
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "::notice title=verify 1::SDK_DIR=$SDK_DIR apk_exists=$([ -f "$APK" ] && echo yes || echo no)"
+          AAPT2=$(find "$SDK_DIR/build-tools" -name aapt2 -type f 2>/dev/null | sort -V | tail -n1)
+          echo "::notice title=verify 2::AAPT2=$AAPT2"
+          "$AAPT2" dump badging "$APK" > badging.txt 2>badging.err
+          echo "::notice title=verify 3::badging rc=$? lines=$(wc -l < badging.txt) err=$(head -c 300 badging.err | tr '\n' ' ')"
+          "$AAPT2" dump permissions "$APK" > perms.txt 2>perms.err
+          echo "::notice title=verify 4::permissions dump=$(tr '\n' ' ' < perms.txt | head -c 600)"
           SDK=$(grep -oE "sdkVersion:'[0-9]+'" badging.txt | head -n1)
           TGT=$(grep -oE "targetSdkVersion:'[0-9]+'" badging.txt | head -n1)
-          NATIVE=$(grep -E "^native-code" badging.txt || echo "native-code: (none — pure JVM APK, runs on every ABI)")
-          PERMS=$(grep -oE "android\.permission\.[A-Za-z_]+" perms.txt badging.txt | sed 's/.*://' | sort -u | tr '\n' ' ')
+          NATIVE=$(grep -E "^native-code" badging.txt || echo "native-code: none (pure JVM APK - runs on every ABI)")
+          PERMS=$(grep -oE "android[.]permission[.][A-Za-z_]+" perms.txt | sort -u | tr '\n' ' ')
           SIZE=$(stat -c %s "$APK")
           echo "::notice title=APK facts::$SDK $TGT | $NATIVE | permissions: $PERMS | size: $SIZE bytes"
           FAIL=0
@@ -68,7 +73,6 @@ jobs:
               grep -q "'$abi'" badging.txt || { echo "::error title=ABI::$abi missing"; FAIL=1; }
             done
           fi
-          if [ -s badging.err ]; then echo "::warning title=aapt2 badging stderr::$(head -c 800 badging.err | tr '\n' ' ')"; fi
           {
             echo "## app-debug.apk"
             echo '```'
