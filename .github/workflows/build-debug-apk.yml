@@ -45,21 +45,22 @@ jobs:
       - name: Verify APK (permissions, SDK levels, ABIs)
         shell: bash
         run: |
+          set +e
           APK=app/build/outputs/apk/debug/app-debug.apk
           SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          echo "::notice title=verify 1::SDK_DIR=$SDK_DIR apk_exists=$([ -f "$APK" ] && echo yes || echo no)"
           AAPT2=$(find "$SDK_DIR/build-tools" -name aapt2 -type f 2>/dev/null | sort -V | tail -n1)
-          echo "::notice title=verify 2::AAPT2=$AAPT2"
-          "$AAPT2" dump badging "$APK" > badging.txt 2>badging.err
-          echo "::notice title=verify 3::badging rc=$? lines=$(wc -l < badging.txt) err=$(head -c 300 badging.err | tr '\n' ' ')"
-          "$AAPT2" dump permissions "$APK" > perms.txt 2>perms.err
-          echo "::notice title=verify 4::permissions dump=$(tr '\n' ' ' < perms.txt | head -c 600)"
-          SDK=$(grep -oE "sdkVersion:'[0-9]+'" badging.txt | head -n1)
-          TGT=$(grep -oE "targetSdkVersion:'[0-9]+'" badging.txt | head -n1)
-          NATIVE=$(grep -E "^native-code" badging.txt || echo "native-code: none (pure JVM APK - runs on every ABI)")
+          "$AAPT2" dump badging "$APK" > badging.txt 2>/dev/null
+          "$AAPT2" dump permissions "$APK" > perms.txt 2>/dev/null
+          SDK=$(grep -oE "^sdkVersion:'[0-9]+'" badging.txt | head -n1)
+          TGT=$(grep -oE "^targetSdkVersion:'[0-9]+'" badging.txt | head -n1)
+          NATIVE=$(grep -E "^native-code" badging.txt)
+          [ -n "$NATIVE" ] || NATIVE="native-code: none (pure JVM APK - runs on every ABI)"
+          # Only Android platform permissions count; AndroidX adds one app-private
+          # signature permission (DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION) which is
+          # not a runtime permission and never shown to the user.
           PERMS=$(grep -oE "android[.]permission[.][A-Za-z_]+" perms.txt | sort -u | tr '\n' ' ')
           SIZE=$(stat -c %s "$APK")
-          echo "::notice title=APK facts::$SDK $TGT | $NATIVE | permissions: $PERMS | size: $SIZE bytes"
+          echo "::notice title=APK facts::$SDK $TGT | $NATIVE | permissions: $PERMS| size: $SIZE bytes"
           FAIL=0
           [ "$SDK" = "sdkVersion:'24'" ]        || { echo "::error title=minSdk::expected 24, got '$SDK'"; FAIL=1; }
           [ "$TGT" = "targetSdkVersion:'35'" ]  || { echo "::error title=targetSdk::expected 35, got '$TGT'"; FAIL=1; }
