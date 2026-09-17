@@ -51,7 +51,8 @@ jobs:
           AAPT2=$(find "$SDK_DIR/build-tools" -name aapt2 -type f 2>/dev/null | sort -V | tail -n1)
           "$AAPT2" dump badging "$APK" > badging.txt 2>/dev/null
           "$AAPT2" dump permissions "$APK" > perms.txt 2>/dev/null
-          SDK=$(grep -oE "^sdkVersion:'[0-9]+'" badging.txt | head -n1)
+          echo "::notice title=badging sdk lines::$(grep -iE "sdkversion" badging.txt | tr '\n' ' ')"
+          SDK=$(grep -ioE "(^|[^a-z])(min)?sdkVersion:'[0-9]+'" badging.txt | grep -iv target | grep -oE "[0-9]+" | head -n1)
           TGT=$(grep -oE "^targetSdkVersion:'[0-9]+'" badging.txt | head -n1)
           NATIVE=$(grep -E "^native-code" badging.txt)
           [ -n "$NATIVE" ] || NATIVE="native-code: none (pure JVM APK - runs on every ABI)"
@@ -60,9 +61,9 @@ jobs:
           # not a runtime permission and never shown to the user.
           PERMS=$(grep -oE "android[.]permission[.][A-Za-z_]+" perms.txt | sort -u | tr '\n' ' ')
           SIZE=$(stat -c %s "$APK")
-          echo "::notice title=APK facts::$SDK $TGT | $NATIVE | permissions: $PERMS| size: $SIZE bytes"
+          echo "::notice title=APK facts::minSdk=$SDK $TGT | $NATIVE | permissions: $PERMS| size: $SIZE bytes"
           FAIL=0
-          [ "$SDK" = "sdkVersion:'24'" ]        || { echo "::error title=minSdk::expected 24, got '$SDK'"; FAIL=1; }
+          [ "$SDK" = "24" ]                     || { echo "::error title=minSdk::expected 24, got '$SDK'"; FAIL=1; }
           [ "$TGT" = "targetSdkVersion:'35'" ]  || { echo "::error title=targetSdk::expected 35, got '$TGT'"; FAIL=1; }
           [ "$PERMS" = "android.permission.CAMERA android.permission.RECORD_AUDIO " ] \
             || { echo "::error title=permissions::expected exactly CAMERA + RECORD_AUDIO, got '$PERMS'"; FAIL=1; }
@@ -77,7 +78,7 @@ jobs:
           {
             echo "## app-debug.apk"
             echo '```'
-            echo "$SDK $TGT"; echo "$NATIVE"; echo "permissions: $PERMS"; echo "size: $SIZE bytes"
+            echo "minSdk=$SDK $TGT"; echo "$NATIVE"; echo "permissions: $PERMS"; echo "size: $SIZE bytes"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit $FAIL
