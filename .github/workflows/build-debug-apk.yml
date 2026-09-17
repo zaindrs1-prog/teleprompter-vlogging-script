@@ -32,6 +32,39 @@ jobs:
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
+      # Acceptance checks baked into CI: a green run proves the manifest facts.
+      - name: Verify APK (permissions, SDK levels, ABIs)
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          AAPT2=$(ls -d "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -n1)
+          "$AAPT2" dump badging "$APK" > badging.txt
+          "$AAPT2" dump permissions "$APK" > perms.txt
+          echo "== badging ==";  grep -E "package:|sdkVersion|targetSdkVersion|native-code|uses-permission" badging.txt || true
+          grep -q "sdkVersion:'24'" badging.txt          || { echo "minSdk is not 24"; exit 1; }
+          grep -q "targetSdkVersion:'35'" badging.txt    || { echo "targetSdk is not 35"; exit 1; }
+          PERMS=$(grep -oE "android\.permission\.[A-Z_]+" perms.txt | sort -u | tr '\n' ' ')
+          echo "permissions: $PERMS"
+          [ "$PERMS" = "android.permission.CAMERA android.permission.RECORD_AUDIO " ] \
+            || { echo "Permission set is not exactly CAMERA + RECORD_AUDIO"; exit 1; }
+          ! grep -q "SYSTEM_ALERT_WINDOW" perms.txt        || { echo "SYSTEM_ALERT_WINDOW present"; exit 1; }
+          ! grep -rq "SYSTEM_ALERT_WINDOW\|canDrawOverlays\|TYPE_APPLICATION_OVERLAY" app/src/main/java \
+            || { echo "overlay-permission code present"; exit 1; }
+          # No native code of our own => universal APK; must not be restricted to an ABI subset.
+          if grep -q "native-code" badging.txt; then
+            for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+              grep -q "'$abi'" badging.txt || { echo "ABI $abi missing"; exit 1; }
+            done
+          fi
+          ls -la "$APK"
+          {
+            echo "## app-debug.apk"
+            echo '```'
+            grep -E "package:|sdkVersion|targetSdkVersion|native-code" badging.txt
+            echo "permissions: $PERMS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload app-debug.apk
         uses: actions/upload-artifact@v4
         with:
@@ -42,3 +75,11 @@ jobs:
 
       - name: Run JVM unit tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon
+
+      - name: Upload unit test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: ignore

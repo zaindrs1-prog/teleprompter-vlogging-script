@@ -395,17 +395,18 @@ private fun ControlRegion(
                 StatusLine(ui)
                 TransportRow(ui, vm)
                 EtaRow(ui)
-                RecordRow(ui, vm)
+                RecordRow(ui, vm) { openSheet(Sheet.MIC) }
                 ToolRow(ui, vm, onBack, onEdit, openSheet)
             }
         } else {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 StatusLine(ui)
                 EtaRow(ui)
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.weight(1f)) { TransportRow(ui, vm) }
+                // Transport on its own line so it fits 360 dp phones; record + mic below.
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { TransportRow(ui, vm) }
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     RecordButton(ui, vm)
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) { MicChip(ui) { openSheet(Sheet.MIC) } }
+                    Box(Modifier.align(Alignment.CenterEnd)) { MicChip(ui) { openSheet(Sheet.MIC) } }
                 }
                 ToolRow(ui, vm, onBack, onEdit, openSheet)
             }
@@ -498,10 +499,10 @@ private fun TransportRow(ui: CameraUiState, vm: CameraViewModel) {
 }
 
 @Composable
-private fun RecordRow(ui: CameraUiState, vm: CameraViewModel) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun RecordRow(ui: CameraUiState, vm: CameraViewModel, onMic: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         RecordButton(ui, vm)
-        MicChip(ui) { }
+        MicChip(ui, onMic)
     }
 }
 
