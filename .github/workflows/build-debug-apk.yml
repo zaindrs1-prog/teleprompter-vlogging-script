@@ -1,0 +1,95 @@
+name: Build Debug APK
+
+on:
+  push:
+    branches:
+      - main
+      - 'arena/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: assembleDebug
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Upload app-debug.apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      # Acceptance checks baked into CI: a green run proves the manifest facts.
+      # Findings are emitted as annotations so they are visible on the run page.
+      - name: Verify APK (permissions, SDK levels, ABIs)
+        shell: bash
+        run: |
+          set +e
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          AAPT2=$(find "$SDK_DIR/build-tools" -name aapt2 -type f 2>/dev/null | sort -V | tail -n1)
+          "$AAPT2" dump badging "$APK" > badging.txt 2>/dev/null
+          "$AAPT2" dump permissions "$APK" > perms.txt 2>/dev/null
+          echo "::notice title=badging sdk lines::$(grep -iE "sdkversion" badging.txt | tr '\n' ' ')"
+          SDK=$(grep -ioE "(^|[^a-z])(min)?sdkVersion:'[0-9]+'" badging.txt | grep -iv target | grep -oE "[0-9]+" | head -n1)
+          TGT=$(grep -oE "^targetSdkVersion:'[0-9]+'" badging.txt | head -n1)
+          NATIVE=$(grep -E "^native-code" badging.txt)
+          [ -n "$NATIVE" ] || NATIVE="native-code: none (pure JVM APK - runs on every ABI)"
+          # Only Android platform permissions count; AndroidX adds one app-private
+          # signature permission (DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION) which is
+          # not a runtime permission and never shown to the user.
+          PERMS=$(grep -oE "android[.]permission[.][A-Za-z_]+" perms.txt | sort -u | tr '\n' ' ')
+          SIZE=$(stat -c %s "$APK")
+          echo "::notice title=APK facts::minSdk=$SDK $TGT | $NATIVE | permissions: $PERMS| size: $SIZE bytes"
+          FAIL=0
+          [ "$SDK" = "24" ]                     || { echo "::error title=minSdk::expected 24, got '$SDK'"; FAIL=1; }
+          [ "$TGT" = "targetSdkVersion:'35'" ]  || { echo "::error title=targetSdk::expected 35, got '$TGT'"; FAIL=1; }
+          [ "$PERMS" = "android.permission.CAMERA android.permission.RECORD_AUDIO " ] \
+            || { echo "::error title=permissions::expected exactly CAMERA + RECORD_AUDIO, got '$PERMS'"; FAIL=1; }
+          if grep -rq "SYSTEM_ALERT_WINDOW\|canDrawOverlays\|TYPE_APPLICATION_OVERLAY" app/src/main/java; then
+            echo "::error title=overlay::overlay-permission code present in sources"; FAIL=1
+          fi
+          if grep -q "^native-code" badging.txt; then
+            for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+              grep -q "'$abi'" badging.txt || { echo "::error title=ABI::$abi missing"; FAIL=1; }
+            done
+          fi
+          {
+            echo "## app-debug.apk"
+            echo '```'
+            echo "minSdk=$SDK $TGT"; echo "$NATIVE"; echo "permissions: $PERMS"; echo "size: $SIZE bytes"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $FAIL
+
+      - name: Run JVM unit tests
+        run: ./gradlew :app:testDebugUnitTest --no-daemon
+
+      - name: Upload unit test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: ignore
