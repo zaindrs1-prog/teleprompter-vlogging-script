@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.teleprompterpro.app"
+    namespace = "com.zaindrs.teleprompterpro"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.teleprompterpro.app"
+        applicationId = "com.zaindrs.teleprompterpro"
         // Android 7.0+: budget phones are first-class citizens.
         minSdk = 24
         targetSdk = 35
